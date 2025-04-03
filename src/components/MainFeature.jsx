@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   FileText, 
@@ -44,6 +44,7 @@ const MainFeature = () => {
   const [activeElement, setActiveElement] = useState(null)
   const [startPos, setStartPos] = useState({ x: 0, y: 0 })
   const canvasRef = useRef(null)
+  const [hoveredElement, setHoveredElement] = useState(null)
 
   // Handle item changes
   const handleItemChange = (id, field, value) => {
@@ -105,6 +106,7 @@ const MainFeature = () => {
 
   // Handle drag start
   const handleDragStart = (e, id) => {
+    e.preventDefault()
     const element = elements.find(el => el.id === id)
     if (!element) return
     
@@ -113,9 +115,13 @@ const MainFeature = () => {
     const canvas = canvasRef.current
     const canvasRect = canvas.getBoundingClientRect()
     
+    // Get cursor position relative to the element
+    const clientX = e.clientX || (e.touches && e.touches[0].clientX)
+    const clientY = e.clientY || (e.touches && e.touches[0].clientY)
+    
     setStartPos({
-      x: e.clientX - canvasRect.left - element.position.x,
-      y: e.clientY - canvasRect.top - element.position.y
+      x: clientX - canvasRect.left - element.position.x,
+      y: clientY - canvasRect.top - element.position.y
     })
     
     // Update element state to show it's being dragged
@@ -128,11 +134,18 @@ const MainFeature = () => {
   const handleDrag = (e) => {
     if (!activeElement) return
     
+    // Get cursor position, supporting both mouse and touch
+    const clientX = e.clientX || (e.touches && e.touches[0].clientX)
+    const clientY = e.clientY || (e.touches && e.touches[0].clientY)
+    
+    if (!clientX || !clientY) return
+    
     const canvas = canvasRef.current
     const canvasRect = canvas.getBoundingClientRect()
     
-    const x = Math.max(0, Math.min(e.clientX - canvasRect.left - startPos.x, canvasRect.width - 100))
-    const y = Math.max(0, Math.min(e.clientY - canvasRect.top - startPos.y, canvasRect.height - 50))
+    // Calculate new position with boundaries
+    const x = Math.max(0, Math.min(clientX - canvasRect.left - startPos.x, canvasRect.width - 100))
+    const y = Math.max(0, Math.min(clientY - canvasRect.top - startPos.y, canvasRect.height - 50))
     
     setElements(elements.map(el => 
       el.id === activeElement ? { ...el, position: { x, y } } : el
@@ -141,12 +154,43 @@ const MainFeature = () => {
 
   // Handle drag end
   const handleDragEnd = () => {
-    setActiveElement(null)
+    if (!activeElement) return
     
     // Update element state to show it's no longer being dragged
     setElements(elements.map(el => 
       el.id === activeElement ? { ...el, isDragging: false } : el
     ))
+    
+    setActiveElement(null)
+  }
+
+  // Handle element deletion via keyboard
+  const handleKeyDown = (e, id) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      removeElement(id)
+    }
+    
+    // Allow moving elements with arrow keys when focused
+    if (e.key.startsWith('Arrow')) {
+      e.preventDefault()
+      const element = elements.find(el => el.id === id)
+      if (!element) return
+      
+      const { x, y } = element.position
+      let newX = x
+      let newY = y
+      
+      const step = e.shiftKey ? 10 : 1
+      
+      if (e.key === 'ArrowLeft') newX = Math.max(0, x - step)
+      if (e.key === 'ArrowRight') newX = Math.min(canvasRef.current.clientWidth - 100, x + step)
+      if (e.key === 'ArrowUp') newY = Math.max(0, y - step)
+      if (e.key === 'ArrowDown') newY = Math.min(canvasRef.current.clientHeight - 50, y + step)
+      
+      setElements(elements.map(el => 
+        el.id === id ? { ...el, position: { x: newX, y: newY } } : el
+      ))
+    }
   }
 
   // Add new element
@@ -179,6 +223,16 @@ const MainFeature = () => {
   // Remove element
   const removeElement = (id) => {
     setElements(elements.filter(el => el.id !== id))
+    
+    // If we're removing the active element, clear it
+    if (activeElement === id) {
+      setActiveElement(null)
+    }
+    
+    // If we're removing the hovered element, clear it
+    if (hoveredElement === id) {
+      setHoveredElement(null)
+    }
   }
 
   // Update element content
@@ -196,6 +250,32 @@ const MainFeature = () => {
       { id: 'footer', type: 'footer', content: 'Thank you for your business', position: { x: 20, y: 500 }, isDragging: false }
     ])
   }
+
+  // Add event listeners for touch events
+  useEffect(() => {
+    const canvas = canvasRef.current
+    
+    const handleTouchMove = (e) => {
+      if (activeElement) {
+        e.preventDefault() // Prevent scrolling while dragging
+        handleDrag(e)
+      }
+    }
+    
+    const handleTouchEnd = () => {
+      handleDragEnd()
+    }
+    
+    if (canvas) {
+      canvas.addEventListener('touchmove', handleTouchMove, { passive: false })
+      canvas.addEventListener('touchend', handleTouchEnd)
+      
+      return () => {
+        canvas.removeEventListener('touchmove', handleTouchMove)
+        canvas.removeEventListener('touchend', handleTouchEnd)
+      }
+    }
+  }, [activeElement, handleDrag, handleDragEnd])
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -381,6 +461,8 @@ const MainFeature = () => {
             onMouseMove={handleDrag}
             onMouseUp={handleDragEnd}
             onMouseLeave={handleDragEnd}
+            onTouchMove={handleDrag}
+            onTouchEnd={handleDragEnd}
           >
             {/* Draggable elements */}
             {elements.map((element) => (
@@ -392,19 +474,42 @@ const MainFeature = () => {
                   top: element.position.y,
                   zIndex: element.isDragging ? 10 : 1
                 }}
-                className={`draggable-element ${element.isDragging ? 'ring-2 ring-primary' : ''}`}
+                className={`draggable-element group relative ${element.isDragging ? 'ring-2 ring-primary' : hoveredElement === element.id ? 'ring-1 ring-primary' : ''}`}
                 animate={{ 
                   x: element.position.x,
                   y: element.position.y,
                   scale: element.isDragging ? 1.05 : 1
                 }}
                 transition={{ type: 'spring', damping: 20 }}
+                tabIndex={0}
+                onKeyDown={(e) => handleKeyDown(e, element.id)}
+                onMouseEnter={() => setHoveredElement(element.id)}
+                onMouseLeave={() => setHoveredElement(null)}
+                aria-label={`Draggable ${element.type} element. Use arrow keys to move, Delete key to remove.`}
+                role="button"
               >
+                {/* Drag handle - always visible on hover or focus */}
                 <div 
-                  className="drag-handle absolute -top-6 left-0 right-0 flex justify-center opacity-0 hover:opacity-100 transition-opacity"
+                  className="drag-handle absolute -top-6 left-0 right-0 flex justify-center cursor-move opacity-0 group-hover:opacity-100 focus-within:opacity-100"
                   onMouseDown={(e) => handleDragStart(e, element.id)}
+                  onTouchStart={(e) => handleDragStart(e, element.id)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Drag to move"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      // Set up the element for dragging via keyboard
+                      setActiveElement(element.id)
+                      setElements(elements.map(el => 
+                        el.id === element.id ? { ...el, isDragging: true } : el
+                      ))
+                    }
+                  }}
                 >
-                  <MoveHorizontal size={16} className="text-primary bg-white rounded-full p-1 shadow-sm" />
+                  <button className="bg-primary text-white rounded-md p-1 shadow-sm flex items-center" aria-label="Drag handle">
+                    <MoveHorizontal size={16} />
+                  </button>
                 </div>
                 
                 {element.type === 'header' && (
@@ -414,6 +519,7 @@ const MainFeature = () => {
                       value={element.content}
                       onChange={(e) => updateElementContent(element.id, e.target.value)}
                       className="font-bold text-xl border-none focus:outline-none w-full bg-transparent"
+                      aria-label="Edit header text"
                     />
                   </div>
                 )}
@@ -425,6 +531,7 @@ const MainFeature = () => {
                       onChange={(e) => updateElementContent(element.id, e.target.value)}
                       className="text-sm border-none focus:outline-none w-full bg-transparent resize-none"
                       rows={2}
+                      aria-label="Edit footer text"
                     />
                   </div>
                 )}
@@ -435,15 +542,18 @@ const MainFeature = () => {
                       src={element.src} 
                       alt="Draggable image" 
                       className="w-[100px] h-[100px] object-cover rounded-md"
+                      draggable={false} // Prevent default image dragging
                     />
                   </div>
                 )}
                 
+                {/* Delete button - visible on hover or focus */}
                 <button 
-                  className="absolute -top-6 right-0 p-1 bg-red-500 text-white rounded-full opacity-0 hover:opacity-100 transition-opacity"
+                  className="absolute -top-6 right-0 p-1 bg-red-500 text-white rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                   onClick={() => removeElement(element.id)}
+                  aria-label={`Delete ${element.type} element`}
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={16} />
                 </button>
               </motion.div>
             ))}
@@ -511,6 +621,7 @@ const MainFeature = () => {
                         <button 
                           onClick={() => removeItem(item.id)}
                           className="ml-2 text-red-500 opacity-50 hover:opacity-100"
+                          aria-label="Remove item"
                         >
                           <Trash2 size={14} />
                         </button>
