@@ -13,6 +13,8 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { format } from 'date-fns'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 const MainFeature = () => {
   // State for invoice data
@@ -31,6 +33,9 @@ const MainFeature = () => {
     tax: 0,
     total: 0
   })
+
+  // State for PDF export
+  const [isPdfExporting, setIsPdfExporting] = useState(false)
 
   // State for draggable elements
   const [elements, setElements] = useState([
@@ -251,6 +256,64 @@ const MainFeature = () => {
     ])
   }
 
+  // Export to PDF function
+  const exportToPDF = async () => {
+    try {
+      setIsPdfExporting(true)
+      
+      const canvas = canvasRef.current
+      
+      // Hide drag handles and controls during export
+      const controlElements = canvas.querySelectorAll('.drag-handle, button')
+      controlElements.forEach(el => {
+        el.style.visibility = 'hidden'
+      })
+      
+      // Generate PDF
+      const scale = 2 // Higher scale for better quality
+      
+      const html2canvasOptions = {
+        scale: scale,
+        useCORS: true, // Enable CORS for images
+        allowTaint: true,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: document.documentElement.offsetWidth,
+        windowHeight: document.documentElement.offsetHeight,
+        logging: false
+      }
+      
+      const canvas2 = await html2canvas(canvas, html2canvasOptions)
+      
+      // PDF dimensions - using A4 portrait format
+      const imgData = canvas2.toDataURL('image/png')
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      })
+      
+      const imgWidth = 210 // A4 width in mm
+      const imgHeight = (canvas2.height * imgWidth) / canvas2.width
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight)
+      
+      // Generate filename based on invoice number and client
+      const fileName = `Invoice_${invoiceData.invoiceNumber}_${invoiceData.clientName.replace(/\s+/g, '_') || 'Client'}.pdf`
+      
+      pdf.save(fileName)
+      
+      // Restore visibility of control elements
+      controlElements.forEach(el => {
+        el.style.visibility = 'visible'
+      })
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+    } finally {
+      setIsPdfExporting(false)
+    }
+  }
+
   // Add event listeners for touch events
   useEffect(() => {
     const canvas = canvasRef.current
@@ -448,9 +511,13 @@ const MainFeature = () => {
                 <span>Save</span>
               </button>
               
-              <button className="btn btn-primary flex items-center gap-2">
+              <button 
+                className={`btn btn-primary flex items-center gap-2 ${isPdfExporting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                onClick={exportToPDF}
+                disabled={isPdfExporting}
+              >
                 <Download size={18} />
-                <span>Export PDF</span>
+                <span>{isPdfExporting ? 'Exporting...' : 'Export PDF'}</span>
               </button>
             </div>
           </div>
