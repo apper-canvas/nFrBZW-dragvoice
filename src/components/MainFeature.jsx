@@ -480,7 +480,7 @@ const MainFeature = () => {
                   y: element.position.y,
                   scale: element.isDragging ? 1.05 : 1
                 }}
-                transition={{ type: 'spring', damping: 20 }}
+                transition={element.isDragging ? { type: 'spring', damping: 20 } : { duration: 0 }}
                 tabIndex={0}
                 onKeyDown={(e) => handleKeyDown(e, element.id)}
                 onMouseEnter={() => setHoveredElement(element.id)}
